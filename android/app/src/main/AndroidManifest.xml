@@ -16,7 +16,9 @@
 
     <application
         android:allowBackup="false"
-        android:label="Snap-to-Print"
+        android:label="SnapToPrint"
+        android:icon="@drawable/ic_snaptoprint"
+        android:roundIcon="@drawable/ic_snaptoprint"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">

@@ -57,6 +57,11 @@ class SnapDatabase(context: Context) : SQLiteOpenHelper(context, "snap_to_print.
         "SELECT id,name,started_at_ms,active,status,baseline_cutoff_sec FROM sessions ORDER BY started_at_ms DESC LIMIT 1", null
     ).use { c -> if (c.moveToFirst()) c.toSession() else null }
 
+    fun recentSessions(limit: Int = 8): List<EventSession> = readableDatabase.rawQuery(
+        "SELECT id,name,started_at_ms,active,status,baseline_cutoff_sec FROM sessions ORDER BY started_at_ms DESC LIMIT ?",
+        arrayOf(limit.coerceIn(1, 50).toString())
+    ).use { c -> buildList { while (c.moveToNext()) add(c.toSession()) } }
+
     fun sessionById(id: String): EventSession? = readableDatabase.rawQuery(
         "SELECT id,name,started_at_ms,active,status,baseline_cutoff_sec FROM sessions WHERE id=?", arrayOf(id)
     ).use { c -> if (c.moveToFirst()) c.toSession() else null }

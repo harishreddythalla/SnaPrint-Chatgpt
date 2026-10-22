@@ -37,6 +37,8 @@ class MainActivity : Activity() {
     private lateinit var deliveredText: TextView
     private lateinit var pendingText: TextView
     private lateinit var warningText: TextView
+    private lateinit var historyBox: LinearLayout
+    private lateinit var eventStateCard: LinearLayout
 
     private val refreshRunnable = object : Runnable {
         override fun run() { refreshStatus(); mainHandler.postDelayed(this, 1000) }
@@ -74,22 +76,23 @@ class MainActivity : Activity() {
         setContentView(rootScroll)
 
         val title = TextView(this).apply {
-            text = "Snap-to-Print"
+            text = "SnapToPrint"
             textSize = 28f
             setTextColor(Color.rgb(20, 38, 66))
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
         root.addView(title, matchWrap())
         root.addView(TextView(this).apply {
-            text = "Automatic photo transfer · works without internet"
+            text = "Your event photos. On your laptop. Automatically."
             textSize = 14f
             setTextColor(Color.rgb(81, 96, 116))
         }, marginParams(top = 4, bottom = 18))
 
         val statusBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(16))
-            background = roundedBackground(Color.WHITE, 18)
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            background = roundedBackground(Color.WHITE, 20)
+            elevation = dp(2).toFloat()
         }
         status = TextView(this).apply { textSize = 18f; setTextColor(Color.rgb(20, 38, 66)); setTypeface(null, android.graphics.Typeface.BOLD) }
         laptopStatus = TextView(this).apply { textSize = 14f; setTextColor(Color.rgb(81, 96, 116)) }
@@ -114,23 +117,42 @@ class MainActivity : Activity() {
         root.addView(eventName, marginParams(top = 5, bottom = 12))
 
         startButton = Button(this).apply {
-            text = "START EVENT"
+            text = "▶  Start new event"
             textSize = 15f
             isAllCaps = false
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.rgb(37, 99, 235))
+            background = roundedBackground(Color.rgb(37, 99, 235), 14)
+            setPadding(dp(12), dp(7), dp(12), dp(7))
             setOnClickListener { onStartEvent() }
         }
         finishButton = Button(this).apply {
-            text = "FINISH EVENT"
+            text = "■  Finish current event"
             textSize = 15f
             isAllCaps = false
-            setOnClickListener { onFinishEvent() }
+            setTextColor(Color.rgb(185, 28, 28))
+            background = roundedBackground(Color.rgb(254, 242, 242), 14)
+            setPadding(dp(12), dp(7), dp(12), dp(7))
+            setOnClickListener {
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Finish this event?")
+                    .setMessage("New photos will no longer be added to this event. Photos already queued will continue retrying until transferred.")
+                    .setNegativeButton("Keep event active", null)
+                    .setPositiveButton("Finish event") { _, _ -> onFinishEvent() }
+                    .show()
+            }
         }
         root.addView(startButton, marginParams(bottom = 8))
         root.addView(finishButton, marginParams(bottom = 20))
 
-        addLabel(root, "ONE-TIME PAIRING CODE")
+        addLabel(root, "EVENT HISTORY")
+        historyBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = roundedBackground(Color.WHITE, 16)
+        }
+        root.addView(historyBox, marginParams(top = 6, bottom = 18))
+
+        addLabel(root, "LAPTOP PAIRING")
         pairingCode = TextView(this).apply {
             textSize = 30f
             letterSpacing = 0.14f
@@ -175,9 +197,9 @@ class MainActivity : Activity() {
         }
         root.addView(resetPairingButton, marginParams(bottom = 14))
 
-        addLabel(root, "SETUP")
+        addLabel(root, "QUICK SETUP & TROUBLESHOOTING")
         root.addView(TextView(this).apply {
-            text = "1. Turn on your phone's mobile hotspot.\n2. Connect the Windows laptop to that hotspot.\n3. Tap START EVENT here.\n4. Open SnapToPrint-Windows-x64.exe on Windows. The first run asks for the six-digit code above.\n5. Keep this app's event notification active; you can use the normal Camera app to take photos."
+            text = "1  Turn on your phone's hotspot and connect the laptop to it.\n\n2  Start a new event here. The app snapshots existing photos so old images are not included.\n\n3  Open SnapToPrint on Windows. On first pairing, enter the six-digit code above.\n\n4  Take photos with your normal Camera app. Keep this app's event notification active.\n\nIf the laptop says disconnected: confirm both devices use the same hotspot, keep the event active, reopen the Windows receiver, and wait a few seconds. Pending photos stay queued on the phone and retry automatically. If pairing is broken, use Reset pairing on both devices and pair again. Grant access to all photos, not selected-only access."
             textSize = 14f
             setTextColor(Color.rgb(64, 78, 98))
             setLineSpacing(dp(4).toFloat(), 1f)
@@ -229,13 +251,25 @@ class MainActivity : Activity() {
         if (!::database.isInitialized || !::status.isInitialized) return
         val current = database.activeSession()
         val latest = current ?: database.latestSession()
+        historyBox.removeAllViews()
+        val sessions = database.recentSessions(8)
+        if (sessions.isEmpty()) {
+            historyBox.addView(TextView(this).apply { text = "No events yet. Your completed events will appear here."; textSize = 13f; setTextColor(Color.rgb(100, 116, 139)); setPadding(0, dp(8), 0, dp(8)) })
+        } else sessions.forEachIndexed { index, session ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(4), dp(9), dp(4), dp(9)) }
+            val heading = TextView(this).apply { text = (if (session.active) "●  " else "○  ") + session.name; textSize = 15f; setTypeface(null, android.graphics.Typeface.BOLD); setTextColor(if (session.active) Color.rgb(22, 163, 74) else Color.rgb(30, 41, 59)) }
+            val stats = TextView(this).apply { text = "${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(session.startedAtMs))}  ·  ${database.deliveredCount(session.id)} received  ·  ${database.pendingCount(session.id)} pending"; textSize = 12f; setTextColor(Color.rgb(100, 116, 139)); setPadding(dp(22), dp(3), 0, 0) }
+            row.addView(heading); row.addView(stats); historyBox.addView(row)
+            if (index < sessions.lastIndex) historyBox.addView(View(this).apply { setBackgroundColor(Color.rgb(241, 245, 249)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+        }
         val prefs = getSharedPreferences("snap_to_print", MODE_PRIVATE)
         val lastClient = prefs.getLong("last_client_seen_ms", 0L)
         val now = System.currentTimeMillis()
         val isConnectedRecently = lastClient > 0 && now - lastClient < 12_000
         if (current != null) {
-            status.text = "EVENT ACTIVE"
+            status.text = "●  EVENT IN PROGRESS"
             startButton.isEnabled = false
+            startButton.text = "Event already in progress"
             finishButton.isEnabled = true
             eventName.isEnabled = false
             deliveredText.text = "Photos received by laptop: ${database.deliveredCount(current.id)}"
@@ -243,6 +277,7 @@ class MainActivity : Activity() {
             laptopStatus.text = if (isConnectedRecently) "Laptop connected just now" else "Laptop not connected · photos will queue on this phone"
         } else {
             startButton.isEnabled = true
+            startButton.text = "▶  Start new event"
             finishButton.isEnabled = false
             eventName.isEnabled = true
             if (latest == null) {
@@ -277,7 +312,7 @@ class MainActivity : Activity() {
         }
         warningText.text = warning
         warningText.visibility = if (warning.isBlank()) View.GONE else View.VISIBLE
-        if (current != null && current.status == "ACTIVE") finishButton.text = "FINISH EVENT"
+        if (current != null && current.status == "ACTIVE") finishButton.text = "■  Finish current event"
     }
 
     private fun localIPv4Addresses(): List<String> {

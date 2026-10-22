@@ -74,11 +74,21 @@ type Ack struct {
 }
 
 type Receiver struct {
-	cfg       Config
-	cfgPath   string
-	http      *http.Client
-	stdoutMu  sync.Mutex
-	seenState string
+	cfg              Config
+	cfgPath          string
+	http             *http.Client
+	stdoutMu         sync.Mutex
+	seenState        string
+	uiMu             sync.RWMutex
+	uiSession        Session
+	uiConnected      bool
+	uiLastSeen       time.Time
+	uiLastPhoto      string
+	uiLastError      string
+	folderScanMu     sync.Mutex
+	folderScanAt     time.Time
+	folderCache      []eventFolder
+	folderCountCache int
 }
 
 func main() {
@@ -162,6 +172,8 @@ func main() {
 		fmt.Println("You may need to pair again the next time the receiver starts.")
 	}
 
+	go r.startDashboard()
+	openDashboard()
 	r.runForever()
 }
 
@@ -174,6 +186,10 @@ func (r *Receiver) runForever() {
 		err := r.pollOnce(ctx)
 		cancel()
 		if err != nil {
+			r.uiMu.Lock()
+			r.uiConnected = false
+			r.uiLastError = err.Error()
+			r.uiMu.Unlock()
 			consecutiveErrors++
 			if consecutiveErrors == 1 || consecutiveErrors%5 == 0 {
 				r.logState("DISCONNECTED", fmt.Sprintf("Connection unavailable (%v). Keeping phone queue intact; retrying…", err))
@@ -208,6 +224,12 @@ func (r *Receiver) pollOnce(ctx context.Context) error {
 	if err := r.getJSON(ctx, "/api/v1/session/current", &session); err != nil {
 		return err
 	}
+	r.uiMu.Lock()
+	r.uiSession = session
+	r.uiConnected = true
+	r.uiLastSeen = time.Now()
+	r.uiLastError = ""
+	r.uiMu.Unlock()
 	if session.SessionID != "" {
 		label := session.Name
 		if label == "" {
@@ -314,6 +336,9 @@ func (r *Receiver) receiveOne(ctx context.Context, p Photo) error {
 	if err := r.ack(ctx, p, finalPath); err != nil {
 		return err
 	}
+	r.uiMu.Lock()
+	r.uiLastPhoto = filepath.Base(finalPath)
+	r.uiMu.Unlock()
 	fmt.Printf("[%s] Saved %s (%s)\n", time.Now().Format("15:04:05"), finalPath, humanBytes(p.Size))
 	return nil
 }
